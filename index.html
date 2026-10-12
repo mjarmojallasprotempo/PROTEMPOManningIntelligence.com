@@ -1178,11 +1178,11 @@ document.addEventListener('mouseout',e=>{const el=e.target.closest('#rawscore .r
 (()=>{
   'use strict';
   // Replace these two values with your Supabase Project URL and anon/publishable key.
-  const SUPABASE_URL='YOUR_SUPABASE_PROJECT_URL';
-  const SUPABASE_ANON_KEY='YOUR_SUPABASE_ANON_KEY';
+  const SUPABASE_URL='https://aorpdveokfiqchvzjcro.supabase.co';
+  const SUPABASE_ANON_KEY='sb_publishable_3EM7n2y2cYPmGWdJtTEXtA_jcKFDxoF';
   const TABLE='protempo_shared_dashboard';
   // Replace with the UUID(s) of authorized Supabase Auth users. RLS independently enforces the same rule.
-  const ADMIN_USER_IDS=['ADMIN_AUTH_USER_UUID'];
+  const ADMIN_USER_IDS=['0480e618-9cce-4d07-a8e8-faa284b2d427'];
   const REV_KEY='pt_shared_cloud_revision_v1';
   const MANNING_KEY='pt_manning_v2_uploaded';
   const SALES_KEY='pt_sales_scorecard_v1';
@@ -1194,7 +1194,7 @@ document.addEventListener('mouseout',e=>{const el=e.target.closest('#rawscore .r
   let sb=null, user=null, timer=null, syncing=false, lastCloudRevision='';
   const $=id=>document.getElementById(id);
   function configured(){return /^https:\/\//.test(SUPABASE_URL)&&!SUPABASE_URL.includes('YOUR_')&&SUPABASE_ANON_KEY&&!SUPABASE_ANON_KEY.includes('YOUR_')}
-  function isAuthorizedAdmin(){return !!user&&ADMIN_USER_IDS.includes(user.id)&&!ADMIN_USER_IDS.includes('ADMIN_AUTH_USER_UUID')}
+  function isAuthorizedAdmin(){return !!user&&ADMIN_USER_IDS.includes(user.id)}
   function status(message){const el=$('pt-cloud-status');if(el)el.textContent=message}
   function getOrCreatePanel(){
     let panel=$('pt-cloud-panel');if(panel)return panel;
