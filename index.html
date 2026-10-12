@@ -1431,4 +1431,71 @@ document.addEventListener('mouseout',e=>{const el=e.target.closest('#rawscore .r
 #rawscore th,#rawscore td{padding:6px 7px!important}
 @media(max-width:700px){#rawscore .kpi .v{font-size:16px!important}}
 </style>
+
+<script id="scorecard-filter-performance-fix">
+(function(){
+  // Cache expensive Manning joins by raw row, and cache option lists for the
+  // exact filter state. This avoids repeating full name/code joins per slicer.
+  const originalManningMatch=window.rsManningMatch || (typeof rsManningMatch==='function'?rsManningMatch:null);
+  let rowMatchCache=new WeakMap(),managerMatchCache=new WeakMap();
+  let lastIndex=null, optionCache=new Map(), selectedCacheKey='', selectedCacheRows=null;
+  function indexNow(){try{return typeof rsManningIndexBuild==='function'?rsManningIndexBuild():null}catch(e){return null}}
+  if(originalManningMatch){
+    rsManningMatch=function(row){
+      if(!row||typeof row!=='object')return originalManningMatch(row);
+      const idx=indexNow(); if(idx!==lastIndex){lastIndex=idx;rowMatchCache=new WeakMap();managerMatchCache=new WeakMap();optionCache.clear();selectedCacheKey='';selectedCacheRows=null}
+      if(rowMatchCache.has(row))return rowMatchCache.get(row);
+      const result=originalManningMatch(row);rowMatchCache.set(row,result);return result;
+    };
+    window.rsManningMatch=rsManningMatch;
+  }
+  if(typeof rsRawMatchesManager==='function'){
+    const oldManagerMatch=rsRawMatchesManager;
+    rsRawMatchesManager=function(row,key,value){
+      if(!row||typeof row!=='object')return oldManagerMatch(row,key,value);
+      const wanted=String(value||'').trim();if(!wanted)return true;
+      let cache=managerMatchCache.get(row);if(!cache){cache=new Map();managerMatchCache.set(row,cache)}
+      const cacheKey=key+'|'+wanted;if(cache.has(cacheKey))return cache.get(cacheKey);
+      const result=oldManagerMatch(row,key,wanted);cache.set(cacheKey,result);return result;
+    };
+  }
+  function stateKey(skip){return JSON.stringify({m:typeof rsScopeMonth==='function'?rsScopeMonth():'',bu:skip!=='bu'?R.bu:'',region:skip!=='region'?R.region:'',dealer:skip!=='dealer'?R.dealer:'',am:skip!=='am'?R.am:'',ts:skip!=='ts'?R.ts:'',date:skip!=='date'?R.date:'',status:skip!=='status'?R.status:'',promoters:skip!=='promoters'?R.promoters:[],stores:skip!=='stores'?R.stores:[],q:R.q||''})}
+  if(typeof rsSlicerOptions==='function'){
+    const oldOptions=rsSlicerOptions;
+    rsSlicerOptions=function(key,items){
+      if(!R.raw)return oldOptions(key,items);
+      const cacheKey=key+'|'+stateKey(key)+'|'+R.raw.rows.length;
+      if(optionCache.has(cacheKey))return optionCache.get(cacheKey);
+      const vals=new Set();for(const row of R.raw.rows){if(!rsSlicerRawMatch(row,key))continue;const value=rsSlicerValue(row,key);if(value)vals.add(value)}
+      const result=[...vals].sort((a,b)=>String(a).localeCompare(String(b)));optionCache.set(cacheKey,result);
+      if(optionCache.size>80){const first=optionCache.keys().next().value;optionCache.delete(first)}
+      return result;
+    };
+  }
+  if(typeof rsSelectedRawRows==='function'){
+    const oldSelected=rsSelectedRawRows;
+    rsSelectedRawRows=function(){
+      if(!R.raw)return[];
+      const key=stateKey('');
+      if(key===selectedCacheKey&&selectedCacheRows)return selectedCacheRows;
+      selectedCacheRows=oldSelected();selectedCacheKey=key;return selectedCacheRows;
+    };
+  }
+  // Data changes and uploads invalidate memoized filter results.
+  if(typeof loadRaw==='function'){
+    const oldLoadRaw=loadRaw;
+    loadRaw=async function(files){optionCache.clear();selectedCacheKey='';selectedCacheRows=null;return oldLoadRaw(files)};
+  }
+  document.addEventListener('click',function(e){if(e.target.closest('#rawscore [data-rs-slicer-value],#rawscore [data-rs-slicer-clear],#rawscore [data-rs-ms-value],#rawscore [data-rs-ms-all],#rawscore [data-rs-ms-clear],#rawscore [data-ract="clear"]')){optionCache.clear();selectedCacheKey='';selectedCacheRows=null}},true);
+})();
+</script>
+<style id="viewer-scorecard-readonly-details">
+/* Viewers can inspect scorecard details, but cannot edit remarks. */
+body:not(.is-admin) #rawscore .rs-remark-save,
+body:not(.is-admin) #rawscore .rs-remark{display:none!important}
+body:not(.is-admin) #rawscore [data-rs-detail],
+body:not(.is-admin) #rawscore [data-rs-group-view]{display:inline-flex!important;visibility:visible!important;pointer-events:auto!important}
+#rawscore .rs-detail-btn{font-size:10px;border-radius:8px;padding:6px 9px;border:1px solid #e2d9f4;background:#f7f2ff;color:#633bb3;cursor:pointer}
+</style>
+
 </body></html>
