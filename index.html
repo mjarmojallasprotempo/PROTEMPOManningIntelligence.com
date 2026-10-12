@@ -1579,10 +1579,17 @@ body:not(.is-admin) #rawscore [data-rs-group-view]{display:inline-flex!important
  }
  async function pull(){status('Loading shared dashboard data from Supabase…');const {data,error}=await sb.from(TABLE).select('payload,updated_at,revision').eq('id',1).maybeSingle();if(error)throw error;if(!data?.payload){status('Supabase connected · no shared dashboard data has been published yet');return}
    const payload=data.payload,revision=String(data.revision||data.updated_at||''),storedSales=safeJson(localStorage.getItem(SALES_KEY)),storedManning=safeJson(localStorage.getItem(MANNING_KEY)),storedTargets=safeJson(localStorage.getItem(TARGET_LIB_KEY)),storedSellout=await idbRead(TARGET_DB,2,'sellout',['raw']);
-   const hasTargets=Object.keys(payload.targetLibrary||{}).length>0,hasStoredTargets=Object.keys(storedTargets||{}).length>0;
-   const publishedSellout=payload.sellout&&Array.isArray(payload.sellout.rows)&&payload.sellout.rows.length>0,localSellout=storedSellout.raw&&Array.isArray(storedSellout.raw.rows)&&storedSellout.raw.rows.length>0;
-   const missingPublishedData=!!((payload.sales?.actual&&!storedSales?.actual)||(payload.sales?.target&&!storedSales?.target)||(payload.manning&&!storedManning)||(hasTargets&&!hasStoredTargets)||(publishedSellout&&!localSellout));
-   if((revision&&revision!==localStorage.getItem(REV_KEY))||missingPublishedData){await restore(payload,revision);status('Latest shared data loaded · refreshing dashboard…');location.reload();return}status('Shared data is current · '+new Date(data.updated_at).toLocaleString());
+   // Use the published revision as the synchronization source of truth.
+   // LocalStorage-only checks miss data stored in IndexedDB and can cause a
+   // full-page reload loop on every module navigation.
+   const currentRevision=localStorage.getItem(REV_KEY)||'';
+   if(revision && revision!==currentRevision){
+     await restore(payload,revision);
+     status('Latest shared data loaded · refreshing dashboard once…');
+     location.reload();
+     return;
+   }
+   status('Shared data is current · '+new Date(data.updated_at).toLocaleString());
  }
  async function publish(){if(!admin)throw Error('Only the designated administrator can publish shared data.');if(busy)return;busy=true;const b=$('pt-publish-shared');if(b){b.disabled=true;b.textContent='Publishing…'}status('Publishing updated data to Supabase…');try{const payload=await capture(),revision=new Date().toISOString();const {error}=await sb.from(TABLE).upsert({id:1,payload,revision,updated_at:revision},{onConflict:'id'});if(error)throw error;localStorage.setItem(REV_KEY,revision);status('Updated data published · '+new Date(revision).toLocaleString());if(typeof showNotice==='function')showNotice('success','Shared data updated','All dashboard visitors can now load the latest Manning, Target and Sell-Out data from Supabase.')}finally{busy=false;if(b){b.disabled=false;b.textContent='Publish updated data'}}}
  function addPanel(){const header=document.querySelector('header'),controls=header?.lastElementChild;if(!controls||$('pt-publish-shared'))return;const label=document.createElement('span');label.id='pt-shared-data-status';label.textContent='Connecting to shared data…';label.style.cssText='display:inline-block;max-width:260px;font-size:10px;color:#716a89;margin:4px 8px';controls.append(label);const b=document.createElement('button');b.type='button';b.id='pt-publish-shared';b.className='btn primary';b.textContent='Publish updated data';b.style.display='none';b.onclick=()=>publish().catch(e=>{status('Publish failed: '+(e.message||'check Supabase table permissions'));if(typeof showNotice==='function')showNotice('error','Publish failed',e.message||String(e))});controls.append(b)}
