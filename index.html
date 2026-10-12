@@ -1163,4 +1163,141 @@ document.addEventListener('mouseout',e=>{const el=e.target.closest('#rawscore .r
   document.addEventListener("DOMContentLoaded",()=>document.getElementById("portable-download")?.addEventListener("click",downloadPortable));
 })();
 </script>
+
+<!-- Shared-cloud storage integration: configure Supabase values before deploying. -->
+<style>
+#pt-cloud-panel{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-left:12px;font-size:11px}
+#pt-cloud-panel .pt-cloud-status{color:#6c7890;max-width:260px}
+#pt-cloud-panel input{width:150px;min-width:0;padding:7px;border:1px solid #d8e1ef;border-radius:7px}
+#pt-cloud-panel button{border:0;border-radius:7px;padding:8px 10px;cursor:pointer;font-weight:650;background:#edf3fb;color:#243550}
+#pt-cloud-panel .pt-cloud-primary{background:#0b2b8f;color:#fff}
+#pt-cloud-panel .pt-cloud-auth{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+@media(max-width:900px){#pt-cloud-panel{margin:8px 0 0}header{flex-wrap:wrap}}
+</style>
+<script id="protempo-shared-cloud">
+(()=>{
+  'use strict';
+  // Replace these two values with your Supabase Project URL and anon/publishable key.
+  const SUPABASE_URL='YOUR_SUPABASE_PROJECT_URL';
+  const SUPABASE_ANON_KEY='YOUR_SUPABASE_ANON_KEY';
+  const TABLE='protempo_shared_dashboard';
+  // Replace with the UUID(s) of authorized Supabase Auth users. RLS independently enforces the same rule.
+  const ADMIN_USER_IDS=['ADMIN_AUTH_USER_UUID'];
+  const REV_KEY='pt_shared_cloud_revision_v1';
+  const MANNING_KEY='pt_manning_v2_uploaded';
+  const SALES_KEY='pt_sales_scorecard_v1';
+  const TARGET_LIB_KEY='protempo_monthly_target_library_v1';
+  const TARGET_ACTIVE_KEY='protempo_target_active_month_v2';
+  const TARGET_ACTIVE_UPLOAD_KEY='protempo_monthly_site_targets_v1';
+  const SALES_DB='pt_sales_scorecard_db_v1';
+  const TARGET_DB='protempo_target_library_v2';
+  let sb=null, user=null, timer=null, syncing=false, lastCloudRevision='';
+  const $=id=>document.getElementById(id);
+  function configured(){return /^https:\/\//.test(SUPABASE_URL)&&!SUPABASE_URL.includes('YOUR_')&&SUPABASE_ANON_KEY&&!SUPABASE_ANON_KEY.includes('YOUR_')}
+  function isAuthorizedAdmin(){return !!user&&ADMIN_USER_IDS.includes(user.id)&&!ADMIN_USER_IDS.includes('ADMIN_AUTH_USER_UUID')}
+  function status(message){const el=$('pt-cloud-status');if(el)el.textContent=message}
+  function getOrCreatePanel(){
+    let panel=$('pt-cloud-panel');if(panel)return panel;
+    panel=document.createElement('div');panel.id='pt-cloud-panel';
+    panel.innerHTML='<span class="pt-cloud-status" id="pt-cloud-status">Shared data: not configured</span><span id="pt-cloud-auth" class="pt-cloud-auth"></span>';
+    const header=document.querySelector('header');if(header)header.append(panel);else document.body.prepend(panel);
+    return panel;
+  }
+  function showAuth(){
+    const el=$('pt-cloud-auth');if(!el)return;
+    if(isAuthorizedAdmin()){el.innerHTML='<span>'+escapeHtml(user.email||'Admin')+'</span><button id="pt-cloud-sync" class="pt-cloud-primary" type="button">Publish latest data</button><button id="pt-cloud-logout" type="button">Sign out</button>';} else if(user){el.innerHTML='<span>Signed in, but not an authorized admin</span><button id="pt-cloud-logout" type="button">Sign out</button>';}
+    else {el.innerHTML='<input id="pt-cloud-email" type="email" autocomplete="username" placeholder="Admin email" aria-label="Admin email"><input id="pt-cloud-password" type="password" autocomplete="current-password" placeholder="Password" aria-label="Admin password"><button id="pt-cloud-login" class="pt-cloud-primary" type="button">Admin sign in</button>';}
+  }
+  function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+  function idbRead(dbName,version,storeName,keys){return new Promise(resolve=>{if(!indexedDB)return resolve({});let req;try{req=indexedDB.open(dbName,version)}catch(e){return resolve({})}req.onerror=()=>resolve({});req.onupgradeneeded=()=>{};req.onsuccess=()=>{const db=req.result;if(!db.objectStoreNames.contains(storeName)){db.close();return resolve({})}const out={},tx=db.transaction(storeName,'readonly'),st=tx.objectStore(storeName);keys.forEach(k=>{const r=st.get(k);r.onsuccess=()=>{if(r.result!=null)out[k]=r.result}});tx.oncomplete=()=>{db.close();resolve(out)};tx.onerror=()=>{db.close();resolve(out)}}})}
+  function idbAll(dbName,version,storeName){return new Promise(resolve=>{if(!indexedDB)return resolve({});let req;try{req=indexedDB.open(dbName,version)}catch(e){return resolve({})}req.onerror=()=>resolve({});req.onupgradeneeded=()=>{};req.onsuccess=()=>{const db=req.result;if(!db.objectStoreNames.contains(storeName)){db.close();return resolve({})}const out={},tx=db.transaction(storeName,'readonly'),cursor=tx.objectStore(storeName).openCursor();cursor.onsuccess=()=>{const cur=cursor.result;if(cur){out[cur.key]=cur.value;cur.continue()}};tx.oncomplete=()=>{db.close();resolve(out)};tx.onerror=()=>{db.close();resolve(out)}}})}
+  function idbWrite(dbName,version,storeName,entries){return new Promise((resolve,reject)=>{if(!indexedDB)return reject(Error('IndexedDB is unavailable'));const req=indexedDB.open(dbName,version);req.onupgradeneeded=()=>{const db=req.result;if(dbName===SALES_DB&&!db.objectStoreNames.contains('workbooks'))db.createObjectStore('workbooks');if(dbName===TARGET_DB){if(!db.objectStoreNames.contains('months'))db.createObjectStore('months');if(!db.objectStoreNames.contains('sellout'))db.createObjectStore('sellout')}};req.onerror=()=>reject(req.error);req.onsuccess=()=>{const db=req.result;try{const tx=db.transaction(storeName,'readwrite'),st=tx.objectStore(storeName);Object.entries(entries||{}).forEach(([k,v])=>{if(v===null)st.delete(k);else st.put(v,k)});tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>{db.close();reject(tx.error)};tx.onabort=()=>{db.close();reject(tx.error||Error('Cloud restore transaction aborted'))}}catch(e){db.close();reject(e)}}})}
+  async function capture(){
+    const manning=(typeof savedUpload!=='undefined'&&savedUpload)||safeJson(localStorage.getItem(MANNING_KEY));
+    let sales=(typeof salesState!=='undefined'&&salesState)||safeJson(localStorage.getItem(SALES_KEY))||{actual:null,target:null,mapping:{actual:{},target:{}},remarks:{}};
+    const salesDb=await idbRead(SALES_DB,1,'workbooks',['actual','target','settings']);
+    sales={...sales,...(salesDb.settings||{})};
+    for(const k of ['actual','target'])if(salesDb[k])sales[k]=salesDb[k];
+    const targetLibrary={...(safeJson(localStorage.getItem(TARGET_LIB_KEY))||{}),...(await idbAll(TARGET_DB,2,'months'))};
+    const targetDb=await idbRead(TARGET_DB,2,'sellout',['raw']);
+    let activeTarget=(typeof monthlyTargetUpload!=='undefined'&&monthlyTargetUpload)||safeJson(localStorage.getItem(TARGET_ACTIVE_UPLOAD_KEY));
+    if(activeTarget?.month)targetLibrary[activeTarget.month]=activeTarget;
+    return {schema:1,updatedAt:new Date().toISOString(),manning,sales,targetLibrary,targetActiveMonth:localStorage.getItem(TARGET_ACTIVE_KEY)||'',activeTarget,sellout:targetDb.raw||null};
+  }
+  function safeJson(v){try{return v?JSON.parse(v):null}catch(e){return null}}
+  async function restore(payload,revision){
+    if(!payload||payload.schema!==1)return;
+    if(payload.manning)localStorage.setItem(MANNING_KEY,JSON.stringify(payload.manning));
+    if(payload.sales)localStorage.setItem(SALES_KEY,JSON.stringify(payload.sales));
+    localStorage.setItem(TARGET_LIB_KEY,JSON.stringify(payload.targetLibrary||{}));
+    if(payload.targetActiveMonth)localStorage.setItem(TARGET_ACTIVE_KEY,payload.targetActiveMonth);else localStorage.removeItem(TARGET_ACTIVE_KEY);
+    if(payload.activeTarget)localStorage.setItem(TARGET_ACTIVE_UPLOAD_KEY,JSON.stringify(payload.activeTarget));
+    await idbWrite(SALES_DB,1,'workbooks',{actual:payload.sales?.actual||null,target:payload.sales?.target||null,settings:payload.sales||null});
+    await idbWrite(TARGET_DB,2,'months',payload.targetLibrary||{});
+    await idbWrite(TARGET_DB,2,'sellout',{raw:payload.sellout||null});
+    localStorage.setItem(REV_KEY,revision||'');
+  }
+  async function pullShared(){
+    const {data,error}=await sb.from(TABLE).select('payload,updated_at,revision').eq('id',1).maybeSingle();
+    if(error)throw error;if(!data||!data.payload)return;
+    const revision=String(data.revision||data.updated_at||'');
+    if(revision&&revision!==localStorage.getItem(REV_KEY)){
+      await restore(data.payload,revision);
+      status('Latest shared data loaded. Refreshing dashboard…');
+      location.reload();
+    }else status('Shared data current · '+new Date(data.updated_at).toLocaleString());
+  }
+  async function publish(){
+    if(!sb||!isAuthorizedAdmin())throw Error('Sign in with an authorized admin account before publishing.');
+    if(syncing)return;syncing=true;status('Publishing latest data…');
+    try{
+      const payload=await capture(),revision=new Date().toISOString();
+      const {error}=await sb.from(TABLE).upsert({id:1,payload,revision,updated_at:revision},{onConflict:'id'});
+      if(error)throw error;
+      localStorage.setItem(REV_KEY,revision);lastCloudRevision=revision;
+      status('Shared data published · '+new Date(revision).toLocaleString());
+      if(typeof window.showNotice==='function')window.showNotice('success','Shared data published','All dashboard visitors will receive the latest Manning, target and sell-out data.');
+    }finally{syncing=false}
+  }
+  function schedulePublish(){if(!isAuthorizedAdmin())return;clearTimeout(timer);timer=setTimeout(()=>publish().catch(e=>{console.error(e);status('Publish failed: '+(e.message||'check permissions'));}),1400)}
+  function guardAdminUploads(){
+    if(!configured())return;
+    const isAdmin=isAuthorizedAdmin();
+    document.querySelectorAll('input[type="file"]').forEach(el=>{el.disabled=!isAdmin;el.title=isAdmin?'':'Admin sign-in required to upload shared data'});
+    ['upload','reset'].forEach(id=>{const el=$(id);if(el){el.disabled=!isAdmin;el.title=isAdmin?'':'Admin sign-in required'}});
+    document.querySelectorAll('[data-tm-delete]').forEach(el=>{el.disabled=!isAdmin;el.title=isAdmin?'':'Admin sign-in required to change shared targets'});
+    const form=$('edit-form');if(form)form.querySelectorAll('button[type="submit"]').forEach(el=>el.disabled=!isAdmin);
+  }
+  async function initialize(){
+    getOrCreatePanel();
+    if(!configured()){status('Shared cloud not configured · local mode');const auth=$('pt-cloud-auth');if(auth)auth.innerHTML='';document.querySelectorAll('input[type="file"]').forEach(el=>el.disabled=false);return}
+    try{
+      if(!window.supabase){await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';script.onload=resolve;script.onerror=()=>reject(Error('Could not load Supabase client library'));document.head.append(script)})}
+      sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+      const {data:{session}}=await sb.auth.getSession();user=session?.user||null;showAuth();guardAdminUploads();
+      sb.auth.onAuthStateChange((_event,session)=>{user=session?.user||null;showAuth();guardAdminUploads();if(isAuthorizedAdmin())status('Authorized admin signed in · uploads are enabled');else status('Viewer mode · shared data is read-only')});
+      await pullShared();
+      if(!isAuthorizedAdmin())status('Viewer mode · shared data is read-only');
+    }catch(e){console.error(e);status('Cloud connection failed: '+(e.message||'check configuration'));showAuth()}
+  }
+  document.addEventListener('click',async e=>{
+    const id=e.target.closest('button')?.id;
+    if(id==='pt-cloud-login'){
+      const email=$('pt-cloud-email')?.value.trim(),password=$('pt-cloud-password')?.value;
+      if(!email||!password){status('Enter the admin email and password.');return}
+      try{const {error}=await sb.auth.signInWithPassword({email,password});if(error)throw error;status('Admin signed in.')}catch(err){status('Sign-in failed: '+(err.message||'check credentials'))}
+    }else if(id==='pt-cloud-logout'){try{await sb.auth.signOut();user=null;showAuth();guardAdminUploads();status('Signed out · viewer mode')}catch(err){status(err.message||'Sign-out failed')}}
+    else if(id==='pt-cloud-sync'){try{await publish()}catch(err){status('Publish failed: '+(err.message||'check permissions'))}}
+  });
+  document.addEventListener('change',e=>{if(e.target.matches('input[type="file"]')&&isAuthorizedAdmin())status('Upload started. After the workbook finishes loading, click Publish latest data.');});
+  document.addEventListener('submit',e=>{if(e.target.matches('#edit-form'))schedulePublish()});
+  document.addEventListener('click',e=>{if(e.target.closest('#reset,[data-tm-delete],[data-tm-select],#tm-review-save,#pt-cloud-sync'))schedulePublish()});
+  // Existing app creates some upload controls after initial load; enforce admin-only uploads on them too.
+  const observer=new MutationObserver(()=>guardAdminUploads());
+  observer.observe(document.body,{childList:true,subtree:true});
+  window.addEventListener('load',()=>setTimeout(()=>{guardAdminUploads();if(isAuthorizedAdmin())status('Authorized admin signed in · publish after changes');},800));
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initialize,{once:true});else initialize();
+})();
+</script>
+
 </body></html>
