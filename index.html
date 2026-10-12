@@ -209,7 +209,7 @@ body.loading-interaction{cursor:progress}
 <div class="nt">Monthly Targets</div><div class="nav"><button data-p="targets">◎ &nbsp; Store & Promoter Targets</button></div>
 <div class="nt">Future Modules</div><div class="nav"><button data-p="attendance">✓ &nbsp; Attendance</button><button data-p="attrition">↘ &nbsp; Attrition</button><button data-p="scorecard">★ &nbsp; Promoters Sales Out Scorecard</button></div>
 <p class="small" style="color:#91a8d1;margin:25px 9px">Standalone HTML • no installation<br>Primary source: TOTAL MANNING<br>Modular foundation for future agency analytics.</p></aside>
-<main class="main"><header><div><h1 id="title">Manning & Vacancy Intelligence</h1><p id="sub">Establishment → deployment → gap → action</p></div><div><span id="access-status" class="access-status" aria-live="polite">Viewer access</span> <button class="btn" id="admin-signin">Admin Sign in</button><button class="btn hidden" id="admin-signout">Sign out</button> <button class="btn" id="reset">Reset Baseline</button> <button class="btn admin-only" id="portable-download" title="Create a self-contained HTML copy containing the current Manning, Target and Sell-Out data">Create Shareable HTML Copy</button> <button class="btn primary admin-only" id="upload">Upload New Manning DB</button><input id="file" class="admin-only" type="file" accept=".xlsx,.xls,.xlsb" hidden></div></header>
+<main class="main"><header><div><h1 id="title">Manning & Vacancy Intelligence</h1><p id="sub">Establishment → deployment → gap → action</p></div><div><span id="access-status" class="access-status" aria-live="polite">Viewer access</span> <button class="btn" id="admin-signin">Admin Sign in</button><button class="btn hidden" id="admin-signout">Sign out</button> <button class="btn" id="reset">Reset Baseline</button> <button class="btn admin-only" id="portable-download" title="Create an emailable offline HTML copy containing the current Manning, Target and Sell-Out data">Create Emailable Offline HTML</button> <button class="btn primary admin-only" id="upload">Upload New Manning DB</button><input id="file" class="admin-only" type="file" accept=".xlsx,.xls,.xlsb" hidden></div></header>
 <section id="executive" class="page"></section><section id="coverage" class="page hidden"></section><section id="vacancy" class="page hidden"></section><section id="funnel" class="page hidden"></section><section id="detail" class="page hidden"></section><section id="watch" class="page hidden"></section><section id="leaders" class="page hidden"></section><section id="compare" class="page hidden"></section><section id="explorer" class="page hidden"></section><section id="notes" class="page hidden"></section><section id="attendance" class="page hidden"></section><section id="attrition" class="page hidden"></section><section id="scorecard" class="page hidden"></section><section id="targets" class="page hidden"></section>
 </main></div>
 <script id="protempo-portable-bootstrap">
@@ -1398,24 +1398,30 @@ document.addEventListener('mouseout',e=>{const el=e.target.closest('#rawscore .r
     html=html.replace(/<button\b[^>]*\bid=["']download-workbook["'][^>]*>[\s\S]*?<\/button>/gi,'');
     // Never bake the temporary export-button disabled/loading state into the copy.
     html=html.replace(/(<button\b[^>]*\bid=["']portable-download["'][^>]*?)\sdisabled(?:=["'][^"']*["'])?/i,'$1');
-    html=html.replace(/(<button\b[^>]*\bid=["']portable-download["'][^>]*>)[\s\S]*?(<\/button>)/i,'$1Create Shareable HTML Copy$2');
+    html=html.replace(/(<button\b[^>]*\bid=["']portable-download["'][^>]*>)[\s\S]*?(<\/button>)/i,'$1Create Emailable Offline HTML$2');
     return html;
   }
   async function downloadPortable(){
     const button=document.getElementById("portable-download");
     try{
-      if(button){button.disabled=true;button.textContent="Creating Shareable Copy…"}
+      if(button){button.disabled=true;button.textContent="Creating Offline HTML…"}
       const state=await buildPortable();
       const json=JSON.stringify(state),bytes=new TextEncoder().encode(json),b64=b64utf8(bytes);
       let html="<!doctype html>"+document.documentElement.outerHTML;
       html=normalizeExportedControls(html);
+      // Offline email copies must not depend on Supabase or attempt cloud synchronization.
+      html=html.replace(/<script\s+src=["']https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@2[^>]*><\/script>/gi,'');
+      html=html.replace(/<button\b[^>]*\bid=["']admin-signin["'][^>]*>[\s\S]*?<\/button>/gi,'');
+      html=html.replace(/<button\b[^>]*\bid=["']admin-signout["'][^>]*>[\s\S]*?<\/button>/gi,'');
+      html=html.replace(/<button\b[^>]*\bid=["']pt-publish-shared["'][^>]*>[\s\S]*?<\/button>/gi,'');
+      html=html.replace(/<style[^>]*>/i,'<style>\nbody:not(.is-admin) #portable-download{display:none!important} .admin-only{display:none!important}');
       html=replaceBootstrap(html,b64);
       // Remove the exporter-time empty-marker occurrences from executable strings only by leaving the exporter intact; the first actual bootstrap is authoritative.
       const blob=new Blob([html],{type:"text/html;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");
-      a.href=url;a.download="Protempo_Manning_Intelligence_SHAREABLE.html";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
-      showNotice("success","Shareable HTML created","Deploy this newly downloaded SHAREABLE.html as the GitHub Pages index.html. It includes the current Manning, Target and Sell-Out data for all viewers; viewers cannot upload or replace data.");
-    }catch(error){showNotice("error","Could not create shareable HTML",error instanceof Error?error.message:String(error))}
-    finally{if(button){button.disabled=false;button.textContent="Create Shareable HTML Copy"}}
+      a.href=url;a.download="Protempo_Manning_Intelligence_Offline.html";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+      showNotice("success","Offline HTML created","Attach this HTML file to an email. It contains the current Manning, Target and Sell-Out data and opens locally without Supabase or an internet connection for dashboard viewing.");
+    }catch(error){showNotice("error","Could not create offline HTML",error instanceof Error?error.message:String(error))}
+    finally{if(button){button.disabled=false;button.textContent="Create Emailable Offline HTML"}}
   }
   document.addEventListener("DOMContentLoaded",()=>document.getElementById("portable-download")?.addEventListener("click",downloadPortable));
 })();
