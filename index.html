@@ -1713,64 +1713,29 @@ body:not(.is-admin) #rawscore [data-rs-group-view]{display:inline-flex!important
 
 </script>
 
-<script id="protempo-scorecard-integrated-views">
+
+
+<script id="pmi-sales-target-dashboard-extra-views">
 (function(){
- const labels=[['main','Sales & Target'],['tsview','Per TS'],['rosview','Per ROS'],['nosellout','No Reported Sell-Out'],['promrosdetail','Per Promoter / ROS'],['skusellout','SKU Sell-Out']];
- const css='.pmi-scorecard-tabs{display:flex;gap:7px;flex-wrap:wrap;padding:10px;margin:0 0 14px;background:#f7f5fc;border:1px solid #e6e0f0;border-radius:12px}.pmi-scorecard-tab{border:0;background:transparent;color:#706786;font:inherit;font-weight:700;padding:9px 12px;border-radius:8px;cursor:pointer}.pmi-scorecard-tab.active{background:#7041c5;color:#fff}.pmi-scorecard-pane{min-width:0}';
- let selected='main',rendering=false;
- function ensureSections(){
-  ['tsview','rosview','nosellout','promrosdetail','skusellout'].forEach(id=>{
-   const b=document.querySelector(`.nav button[data-p="${id}"]`);if(b)b.remove();
-   if(!document.getElementById(id)){const sec=document.createElement('section');sec.id=id;sec.className='page hidden';document.querySelector('main.main')?.appendChild(sec)}
-  });
-  if(!document.getElementById('pmi-scorecard-style')){const st=document.createElement('style');st.id='pmi-scorecard-style';st.textContent=css;document.head.appendChild(st)}
+ const extra=[['tsview','Per TS'],['rosview','Per ROS'],['dailyview','Daily Store Sell-Out'],['nosellout','No Reported Sell-Out'],['promrosdetail','Promoter Details'],['skusellout','SKU Sell-Out']];
+ let current='main',busy=false;
+ const $=s=>document.querySelector(s);
+ function setup(){
+  const sec=$('#rs'); if(!sec)return;
+  const tabs=sec.querySelector('.rs-tabs'); if(!tabs)return;
+  extra.forEach(([id,label])=>{let b=tabs.querySelector(`[data-pmi-extra="${id}"]`);if(!b){b=document.createElement('button');b.type='button';b.className='rs-tab';b.dataset.pmiExtra=id;b.textContent=label;tabs.appendChild(b)}b.onclick=()=>activate(id)});
+  let panel=sec.querySelector('#pmi-extra-panel');if(!panel){panel=document.createElement('div');panel.id='pmi-extra-panel';panel.style.display='none';panel.style.marginTop='12px';tabs.insertAdjacentElement('afterend',panel)}
+  let base=sec.querySelector('#pmi-original-scorecard-view');if(!base){base=document.createElement('div');base.id='pmi-original-scorecard-view';const nodes=[];let node=panel.nextSibling;while(node){const next=node.nextSibling;if(node.nodeType===1&&!node.matches('#pmi-original-scorecard-view'))nodes.push(node);node=next}nodes.forEach(n=>base.appendChild(n));panel.insertAdjacentElement('afterend',base)}
+  syncTabs(tabs);
  }
- function paint(){
-  const page=document.getElementById('scorecard');if(!page)return;
-  ensureSections();
-  let tabs=page.querySelector('.pmi-scorecard-tabs');
-  if(!tabs){
-   tabs=document.createElement('div');tabs.className='pmi-scorecard-tabs';
-   tabs.innerHTML=labels.map(([id,label])=>`<button type="button" class="pmi-scorecard-tab" data-score-view="${id}">${label}</button>`).join('');
-   const pane=document.createElement('div');pane.className='pmi-scorecard-pane';pane.id='pmi-scorecard-extra';pane.style.display='none';
-   page.insertBefore(pane,page.firstChild);page.insertBefore(tabs,page.firstChild);
-   tabs.querySelectorAll('button').forEach(btn=>btn.addEventListener('click',()=>{selected=btn.dataset.scoreView;showSelected()}));
-  }
-  tabs.querySelectorAll('button').forEach(btn=>btn.classList.toggle('active',btn.dataset.scoreView===selected));
-  showSelected();
+ function syncTabs(tabs){tabs.querySelectorAll('.rs-tab').forEach(b=>b.classList.toggle('active',current==='main'?!b.dataset.pmiExtra:b.dataset.pmiExtra===current))}
+ function activate(id){current=id;const sec=$('#rs'),tabs=sec?.querySelector('.rs-tabs'),panel=sec?.querySelector('#pmi-extra-panel'),base=sec?.querySelector('#pmi-original-scorecard-view');if(!sec||!tabs||!panel||!base)return;syncTabs(tabs);if(id==='main'){panel.style.display='none';base.style.display='';return}panel.style.display='';base.style.display='none';panel.innerHTML='';
+  const sourceId=id==='dailyview'?'promrosdetail':id;let source=document.getElementById(sourceId);if(!source){source=document.createElement('section');source.id=sourceId;source.className='page hidden';document.querySelector('main.main')?.appendChild(source)}source.innerHTML='';
+  if(id==='tsview')window.__pmiRenderLeader?.(sourceId,'ts','TS Sales Achievement Scorecard');else if(id==='rosview')window.__pmiRenderLeader?.(sourceId,'ros','ROS Sales Achievement Scorecard');else if(id==='nosellout')window.__pmiRenderNoSellout?.();else window.__pmiRenderDetails?.(sourceId);
+  if(id==='dailyview'){const h=document.createElement('div');h.className='notice';h.innerHTML='<b>Daily Store Sell-Out</b><br>Filter the detailed lines by date, store, BU, promoter, TS and ROS below. Use Export CSV for analysis.';panel.appendChild(h)}while(source.firstChild)panel.appendChild(source.firstChild);if(!panel.querySelector('[data-pmi-export-view]')){const head=document.createElement('div');head.style.cssText='display:flex;justify-content:flex-end;margin:8px 0';head.innerHTML='<button type="button" class="btn primary" data-pmi-export-view>Download this view (CSV)</button>';panel.prepend(head);head.querySelector('button').onclick=()=>{const table=panel.querySelector('table');if(!table){alert('No table data is available to export yet. Upload the relevant workbook first.');return}const csv=[...table.querySelectorAll('tr')].map(tr=>[...tr.querySelectorAll('th,td')].map(c=>'"'+c.innerText.replace(/"/g,'""')+'"').join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff',csv],{type:'text/csv;charset=utf-8'}));a.download='protempo-'+id+'-view.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}}
  }
- function showSelected(){
-  const page=document.getElementById('scorecard');if(!page)return;
-  const tabs=page.querySelector('.pmi-scorecard-tabs'),pane=page.querySelector('#pmi-scorecard-extra');if(!tabs||!pane)return;
-  tabs.querySelectorAll('button').forEach(btn=>btn.classList.toggle('active',btn.dataset.scoreView===selected));
-  // Original scorecard content is stored after the tab bar in a stable host.
-  let main=page.querySelector('#pmi-scorecard-main');
-  if(!main){main=document.createElement('div');main.id='pmi-scorecard-main';while(pane.nextSibling)main.appendChild(pane.nextSibling);page.appendChild(main)}
-  if(selected==='main'){pane.style.display='none';main.style.display='';return}
-  pane.style.display='';main.style.display='none';pane.innerHTML='';
-  const sec=document.getElementById(selected);if(!sec)return;sec.innerHTML='';
-  if(selected==='tsview')window.__pmiRenderLeader?.(selected,'ts','TS Sales Achievement Scorecard');
-  else if(selected==='rosview')window.__pmiRenderLeader?.(selected,'ros','ROS Sales Achievement Scorecard');
-  else if(selected==='nosellout')window.__pmiRenderNoSellout?.();
-  else window.__pmiRenderDetails?.(selected);
-  while(sec.firstChild)pane.appendChild(sec.firstChild);
- }
- const original=window.scorecardPage;
- if(typeof original==='function'&&!original.__pmiTabsWrapped){
-  const wrapped=function(){const result=original.apply(this,arguments);if(!rendering){rendering=true;try{
-    const page=document.getElementById('scorecard');if(page){
-     // Move the freshly rendered original scorecard content into a stable main host,
-     // then recreate the in-scorecard view tabs on every rerender.
-     const prior=page.querySelector('#pmi-scorecard-main');
-     if(prior){while(prior.firstChild)page.insertBefore(prior.firstChild,prior);prior.remove()}
-     page.querySelector('.pmi-scorecard-tabs')?.remove();page.querySelector('#pmi-scorecard-extra')?.remove();
-     selected=selected||'main';paint();
-    }
-   }finally{rendering=false}}return result};
-  wrapped.__pmiTabsWrapped=true;window.scorecardPage=wrapped;
- }
- if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{if(document.getElementById('scorecard'))paint()},{once:true});
+ function install(){setup();const root=$('#rs');if(root&&!root.dataset.pmiObserver){root.dataset.pmiObserver='1';new MutationObserver(()=>{if(!busy){busy=true;try{setup()}finally{busy=false}}}).observe(root,{childList:true,subtree:true})}}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
 })();
 </script>
-
 </body></html>
