@@ -1629,4 +1629,148 @@ body:not(.is-admin) #rawscore [data-rs-group-view]{display:inline-flex!important
 })();
 </script>
 
+<script id="protempo-ts-ros-no-sellout-modules">
+(function(){
+ const nav=document.querySelector('.nav'); if(!nav)return;
+ const modules=[['tsview','▤ &nbsp; TS Scorecard'],['rosview','▤ &nbsp; ROS Scorecard'],['nosellout','⚠ &nbsp; No Sell-Out by Day']];
+ modules.forEach(([id,label])=>{if(!document.getElementById(id)){const s=document.createElement('section');s.id=id;s.className='page hidden';document.querySelector('main.main').appendChild(s)}});
+ const style=document.createElement('style');style.textContent='.pmi-filter-row{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.pmi-filter-row label{display:grid;gap:4px;font-size:12px;color:var(--m)}.pmi-filter-row select,.pmi-filter-row input{padding:8px;border:1px solid var(--l);border-radius:7px;min-width:160px}.pmi-table-wrap{overflow:auto;max-height:65vh}.pmi-table-wrap table{width:100%;border-collapse:collapse;font-size:12px}.pmi-table-wrap th,.pmi-table-wrap td{padding:8px;border-bottom:1px solid var(--l);text-align:left;white-space:nowrap}.pmi-table-wrap th{position:sticky;top:0;background:#eaf0f8}.pmi-kpis{display:flex;gap:10px;flex-wrap:wrap}.pmi-kpis span{padding:12px;border:1px solid var(--l);border-radius:9px;background:#fff}';document.head.append(style);
+ const esc2=v=>typeof esc==='function'?esc(String(v??'')):String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const man=()=>Array.isArray(window.E)?E:(typeof rows!=='undefined'&&Array.isArray(rows)?rows:[]);
+ function roster(){return man().filter(r=>(r.fieldForceType||'').toUpperCase().includes('PROMOTER')&&String(r.site||'').trim()).map(r=>({ts:r.ts||'',ros:r.ros||'',bu:r.bu||r.category||'',store:r.site||'',promoter:r.promoter||'',dealer:r.dealer||'',region:r.region||'',status:r.status||'',employeeId:r.employeeId||''}));}
+ function unique(a){return [...new Set(a.filter(Boolean).map(String))].sort((a,b)=>a.localeCompare(b));}
+ function picker(label,key,values){return `<label>${label}<select data-pmi-filter="${key}"><option value="">All ${label}</option>${unique(values).map(v=>`<option>${esc2(v)}</option>`).join('')}</select></label>`}
+ window.__pmiRenderLeader=function(id,key,title){const page=document.getElementById(id),all=roster();const state=window.__pmiFilters||(window.__pmiFilters={});const filtered=all.filter(r=>(!state[key]||r[key]===state[key])&&(!state.bu||r.bu===state.bu)&&(!state.region||r.region===state.region));const groups=new Map();filtered.forEach(r=>{const label=r[key]||'Unassigned';if(!groups.has(label))groups.set(label,{label,stores:new Set(),promoters:new Set(),vacant:0,deployed:0,bus:new Set()});const g=groups.get(label);g.stores.add(r.store);g.bus.add(r.bu);if(r.promoter)g.promoters.add(r.promoter);if(/vacant/i.test(r.status))g.vacant++;else if(r.promoter)g.deployed++});const list=[...groups.values()].sort((a,b)=>a.label.localeCompare(b.label));page.innerHTML=`<div class="hero"><h2>${title}</h2><p>Summarized from the embedded Manning roster. TS and ROS accountability is grouped with assigned stores, BU and promoter coverage.</p></div><div class="card"><div class="pmi-filter-row">${picker(key==='ts'?'TS':'ROS',key,all.map(r=>r[key]))}${picker('BU','bu',all.map(r=>r.bu))}${picker('Region','region',all.map(r=>r.region))}</div><div class="pmi-kpis"><span><b>${filtered.length.toLocaleString()}</b><br>Roster lines</span><span><b>${unique(filtered.map(r=>r.store)).length.toLocaleString()}</b><br>Stores</span><span><b>${unique(filtered.map(r=>r.promoter)).length.toLocaleString()}</b><br>Promoters</span></div><div class="pmi-table-wrap"><table><thead><tr><th>${key.toUpperCase()}</th><th>BU(s)</th><th>Stores</th><th>Promoters</th><th>Deployed lines</th><th>Vacant lines</th></tr></thead><tbody>${list.map(g=>`<tr><td>${esc2(g.label)}</td><td>${esc2([...g.bus].join(', '))}</td><td>${g.stores.size}</td><td>${g.promoters.size}</td><td>${g.deployed}</td><td>${g.vacant}</td></tr>`).join('')||'<tr><td colspan="6">No matching roster rows.</td></tr>'}</tbody></table></div></div>`;page.querySelectorAll('[data-pmi-filter]').forEach(el=>el.onchange=()=>{state[el.dataset.pmiFilter]=el.value;renderLeader(id,key,title)});}
+ const renderLeaderCoverage=renderLeader;
+ renderLeader=function(id,key,title){
+   renderLeaderCoverage(id,key,title);
+   const page=document.getElementById(id); if(!page)return;
+   let rows=[]; try{rows=typeof salesScoreRows==='function'?salesScoreRows():[]}catch(e){rows=[]}
+   const norm=s=>String(s??'').trim().toLowerCase().replace(/[^a-z0-9]/g,'');
+   const assigned=roster(),state=window.__pmiFilters||{};
+   const getStoresFor=(leader)=>assigned.filter(a=>norm(a[key])===norm(leader)).map(a=>norm(a.store)).filter(Boolean);
+   const groups=new Map();
+   rows.forEach(row=>{
+     let leaders=[];
+     if(key==='ts'){if(row.ts)leaders=[row.ts]}
+     else {const hay=norm([row.channel,row.channels,row.channelGroup,row.channelGroups,row.name].join(' '));leaders=unique(assigned.filter(a=>norm(a.ros)&&getStoresFor(a.ros).some(store=>store&&hay.includes(store))).map(a=>a.ros));}
+     leaders.forEach(leader=>{
+       if(state[key]&&norm(leader)!==norm(state[key]))return;
+       if(state.bu&&norm(row.category)!==norm(state.bu)&&norm(row.channelGroup)!==norm(state.bu))return;
+       const month=row.month||'Unspecified',k=leader+'|'+month;
+       if(!groups.has(k))groups.set(k,{leader,month,sales:0,target:0,lines:0});
+       const g=groups.get(k);g.sales+=Number(row.sales)||0;g.target+=Number(row.target)||0;g.lines++;
+     });
+   });
+   const money2=n=>typeof money==='function'?money(n):Number(n||0).toLocaleString(undefined,{maximumFractionDigits:2});
+   const pct3=(a,t)=>t>0?(a/t*100).toFixed(1)+'%':'—';
+   const entries=[...groups.values()].sort((a,b)=>a.month.localeCompare(b.month)||a.leader.localeCompare(b.leader));
+   const card=`<div class="card" style="margin-top:13px"><div class="head"><div><h3>${title} · Sales Achievement Scorecard</h3><div class="sub">Monthly sell-out actual vs target from the uploaded Sales Out and Target workbooks. Coverage-only rows are not counted as sales.</div></div></div>${rows.length?`<div class="pmi-table-wrap"><table><thead><tr><th>${key.toUpperCase()}</th><th>Month</th><th>Sales Actual</th><th>Sales Target</th><th>Achievement</th><th>Gap to Target</th><th>Matched Lines</th></tr></thead><tbody>${entries.map(g=>`<tr><td>${esc2(g.leader)}</td><td>${esc2(g.month)}</td><td>${money2(g.sales)}</td><td>${money2(g.target)}</td><td>${pct3(g.sales,g.target)}</td><td>${money2(g.target-g.sales)}</td><td>${g.lines}</td></tr>`).join('')||`<tr><td colspan="7">No matching sales achievement rows for this ${key.toUpperCase()} selection. Check the TS/store mapping in the uploaded workbooks.</td></tr>`}</tbody></table></div>`:`<div class="notice">Upload and map both the raw sell-out workbook and monthly target workbook in Monthly Final Sales Out to populate sales achievement.</div>`}</div>`;
+   page.insertAdjacentHTML('beforeend',card);
+ };
+
+ function actual(){if(typeof salesState!=='undefined'&&salesState.actual)return {headers:salesState.actual.headers,rows:salesState.actual.rows};if(window.__rsV2LoadRaw){const s=window.__rsV2RawSnapshot?.();if(s)return s}return null}
+ window.__pmiRenderNoSellout=function renderNoSellout(){const page=document.getElementById('nosellout'),r=roster(),src=actual();if(!src){page.innerHTML='<div class="hero"><h2>No Sell-Out by Day</h2><p>Upload the daily sell-out workbook in the Monthly Final Sales Out module to compare stores against daily activity.</p></div><div class="notice">No sell-out file is currently available in this browser. Upload the daily file first.</div>';return}
+ const norm=s=>String(s??'').trim().toLowerCase().replace(/[^a-z0-9]/g,'');const find=patterns=>src.headers.find(h=>patterns.some(p=>p.test(String(h))))||'';const dateH=find([/\bdate\b/i,/transaction.*day/i,/sales.*date/i,/business date/i]),storeH=find([/store.*name/i,/site.*name/i,/channel.*name/i,/store/i,/mcs.*name/i]),buH=find([/^bu$/i,/bu cat/i,/business unit/i,/category/i]),promH=find([/promoter.*name/i,/employee.*name/i,/salesperson/i,/promoter/i]),tsH=find([/^ts$/i,/ts name/i,/territory supervisor/i]),salesH=find([/sell.?out/i,/sales actual/i,/net sales/i,/sales amount/i]);
+ if(!dateH||!storeH){page.innerHTML=`<div class="hero"><h2>No Sell-Out by Day</h2><p>Compare assigned promoter/store/BU coverage with daily sell-out entries.</p></div><div class="notice">The uploaded workbook needs a recognizable daily date and store/site column. Detected columns: date=${esc2(dateH||'not found')}, store=${esc2(storeH||'not found')}. Please check the source column headings.</div>`;return}
+ const col=h=>src.headers.indexOf(h),rows=src.rows.map(row=>({date:String(row[col(dateH)]??'').trim(),store:String(row[col(storeH)]??'').trim(),bu:buH?String(row[col(buH)]??'').trim():'',promoter:promH?String(row[col(promH)]??'').trim():'',ts:tsH?String(row[col(tsH)]??'').trim():'',sales:salesH?Number(String(row[col(salesH)]??'').replace(/[₱,$,\s]/g,''))||0:0})).filter(x=>x.date&&x.store);
+ const dates=unique(rows.map(x=>x.date));const state=window.__pmiNoSales||(window.__pmiNoSales={date:dates[dates.length-1]||'',ts:'',bu:'',store:'',q:''});if(!state.date)state.date=dates[dates.length-1]||'';
+ const rosterFiltered=r.filter(x=>(!state.ts||x.ts===state.ts)&&(!state.bu||x.bu===state.bu)&&(!state.store||x.store===state.store)&&(!state.q||[x.promoter,x.store,x.ts,x.ros,x.bu,x.dealer].join(' ').toLowerCase().includes(state.q.toLowerCase())));
+ const storeKeys=new Set(rows.filter(x=>x.date===state.date).map(x=>norm(x.store)+'|'+norm(x.bu)));const activeRows=rows.filter(x=>x.date===state.date);const no=rosterFiltered.filter(x=>!storeKeys.has(norm(x.store)+'|'+norm(x.bu)));const sel=(label,key,vals)=>`<label>${label}<select data-ns="${key}"><option value="">All ${label}</option>${unique(vals).map(v=>`<option ${state[key]===v?'selected':''}>${esc2(v)}</option>`).join('')}</select></label>`;
+ page.innerHTML=`<div class="hero"><h2>No Sell-Out by Day</h2><p>Lists roster-assigned stores with no matching sell-out row for the selected date. The check connects store, promoter, TS/ROS and BU using Manning assignments. It flags missing entries for review; it does not prove why no sale was recorded.</p><span class="pill">Daily source: ${esc2(src.name||'uploaded sell-out workbook')}</span></div><div class="card"><div class="pmi-filter-row"><label>Date checked<select data-ns="date">${dates.map(d=>`<option ${state.date===d?'selected':''}>${esc2(d)}</option>`).join('')}</select></label>${sel('TS','ts',r.map(x=>x.ts))}${sel('BU','bu',r.map(x=>x.bu))}${sel('Store','store',r.map(x=>x.store))}<label>Search promoter/store<input data-ns="q" value="${esc2(state.q)}" placeholder="Promoter, ROS, dealer..."></label></div><div class="pmi-kpis"><span><b>${activeRows.length.toLocaleString()}</b><br>Sell-out rows on selected date</span><span><b>${rosterFiltered.length.toLocaleString()}</b><br>Assigned roster lines</span><span><b>${no.length.toLocaleString()}</b><br>Store/BU lines with no matching row</span></div><div class="notice">Matching is based on normalized store name + BU for the selected date. If the source records multiple lines per store, any matching line counts as activity. Confirm store naming and BU mappings before acting.</div><div class="pmi-table-wrap"><table><thead><tr><th>Date</th><th>Store</th><th>Promoter</th><th>BU</th><th>TS</th><th>ROS</th><th>Dealer</th><th>Region</th><th>Review status</th></tr></thead><tbody>${no.map(x=>`<tr><td>${esc2(state.date)}</td><td>${esc2(x.store)}</td><td>${esc2(x.promoter||'Unassigned')}</td><td>${esc2(x.bu)}</td><td>${esc2(x.ts)}</td><td>${esc2(x.ros)}</td><td>${esc2(x.dealer)}</td><td>${esc2(x.region)}</td><td><b style="color:#b45309">Review — no matching sell-out row</b></td></tr>`).join('')||'<tr><td colspan="9">No assigned store/BU lines are missing a matching sell-out row for this selection.</td></tr>'}</tbody></table></div></div>`;
+ page.querySelectorAll('[data-ns]').forEach(el=>{const change=()=>{state[el.dataset.ns]=el.value;renderNoSellout()};el.addEventListener(el.tagName==='INPUT'?'input':'change',change)});
+ }
+ const oldRender=render;render=function(p){if(p==='tsview'){activePage=p;document.querySelectorAll('.page').forEach(s=>s.classList.add('hidden'));document.getElementById(p).classList.remove('hidden');document.getElementById('title').textContent='TS Scorecard';document.getElementById('sub').textContent='Manning coverage grouped by TS, BU and store';document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.p===p));window.__pmiRenderLeader(p,'ts','TS Scorecard');return}if(p==='rosview'){activePage=p;document.querySelectorAll('.page').forEach(s=>s.classList.add('hidden'));document.getElementById(p).classList.remove('hidden');document.getElementById('title').textContent='ROS Scorecard';document.getElementById('sub').textContent='Manning coverage grouped by ROS, BU and store';document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.p===p));window.__pmiRenderLeader(p,'ros','ROS Scorecard');return}if(p==='nosellout'){activePage=p;document.querySelectorAll('.page').forEach(s=>s.classList.add('hidden'));document.getElementById(p).classList.remove('hidden');document.getElementById('title').textContent='No Sell-Out by Day';document.getElementById('sub').textContent='Assigned stores with no matching daily sell-out row';document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.p===p));window.__pmiRenderNoSellout();return}return oldRender(p)};
+})();
+
+</script>
+<script id="protempo-promoter-ros-sku-tabs">
+(function(){
+ const nav=document.querySelector('.nav'); if(!nav)return;
+ const modules=[['promrosdetail','▤ &nbsp; Promoter &amp; ROS Details'],['skusellout','▤ &nbsp; SKU Sell-Out']];
+ modules.forEach(([id,label])=>{if(!document.getElementById(id)){const s=document.createElement('section');s.id=id;s.className='page hidden';document.querySelector('main.main').appendChild(s)}});
+ const n=s=>String(s??'').trim().toLowerCase().replace(/[^a-z0-9]/g,'');
+ const escx=s=>typeof esc==='function'?esc(String(s??'')):String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const getRaw=()=>{if(typeof salesState!=='undefined'&&salesState.actual)return {headers:salesState.actual.headers,rows:salesState.actual.rows,name:salesState.actual.fileName||''};if(window.__rsV2LoadRaw){const x=window.__rsV2RawSnapshot?.();if(x)return x}return null};
+ const fmtx=x=>Number(x||0).toLocaleString(undefined,{maximumFractionDigits:2});
+ function mapped(){const src=getRaw();if(!src)return null;const h=src.headers;const find=patterns=>h.find(x=>patterns.some(p=>p.test(String(x))))||'';const cols={date:find([/^date$/i,/transaction.*date/i,/sales.*date/i,/business date/i]),store:find([/store.*name/i,/site.*name/i,/channel.*name/i,/mcs.*name/i,/store/i]),bu:find([/^bu$/i,/bu cat/i,/business unit/i,/category/i]),prom:find([/promoter.*name/i,/employee.*name/i,/salesperson/i,/promoter/i]),sku:find([/^sku$/i,/sku.*code/i,/item.*code/i,/product.*code/i,/material/i,/item description/i,/product name/i,/model/i]),qty:find([/^qty$/i,/quantity/i,/sell.?out qty/i]),sales:find([/net cash/i,/sell.?out amount/i,/sales amount/i,/net sales/i,/amount/i]),siteid:find([/site.?id/i,/mcs code/i,/store code/i]),ts:find([/^ts$/i,/ts name/i,/territory.*supervisor/i]),ros:find([/^ros$/i,/ros name/i,/regional.*sales/i])};
+ const ix=k=>cols[k]?h.indexOf(cols[k]):-1, val=(row,k)=>ix(k)>=0?String(row[ix(k)]??'').trim():'';
+ const roster=(typeof window.E!=='undefined'&&Array.isArray(window.E)?window.E:(typeof rows!=='undefined'&&Array.isArray(rows)?rows:[])).filter(x=>String(x.fieldForceType||'').toUpperCase().includes('PROMOTER')&&x.site).map(x=>({store:x.site,bu:x.bu||x.category||'',promoter:x.promoter||'',employeeId:x.employeeId||'',ts:x.ts||'',ros:x.ros||'',siteid:x.mcsCode||'',dealer:x.dealer||'',region:x.region||''}));
+ const data=src.rows.map((r,i)=>({date:val(r,'date'),store:val(r,'store'),bu:val(r,'bu'),promoter:val(r,'prom'),sku:val(r,'sku'),qty:val(r,'qty'),sales:val(r,'sales'),siteid:val(r,'siteid'),ts:val(r,'ts'),ros:val(r,'ros'),values:r,index:i}));
+ const join=data.map(d=>{const matches=roster.filter(a=>(d.siteid&&n(a.siteid)===n(d.siteid))|| (n(a.store)===n(d.store)&&(!d.bu||n(a.bu)===n(d.bu))));const a=matches[0]||{};return {...d,store:d.store||a.store,bu:d.bu||a.bu,promoter:d.promoter||a.promoter,employeeId:a.employeeId||'',ts:d.ts||a.ts,ros:d.ros||a.ros,siteid:d.siteid||a.siteid,dealer:a.dealer||'',region:a.region||''}});
+ return {src,cols,roster,data:join};}
+ const state=window.__pmiDetailState||(window.__pmiDetailState={view:'promoter',q:'',bu:'',month:'',ts:'',ros:'',store:'',sku:''});
+ function filterBar(m){const d=m.data;const sel=(key,label,vals)=>`<label>${label}<select data-pd="${key}"><option value="">All ${label}</option>${[...new Set(vals.filter(Boolean))].sort().map(v=>`<option ${state[key]===v?'selected':''}>${escx(v)}</option>`).join('')}</select></label>`;return `<div class="card"><div class="pmi-filter-row"><label>Search<input data-pd="q" value="${escx(state.q)}" placeholder="Promoter, store, SKU, site ID"></label>${sel('bu','BU',d.map(x=>x.bu))}${sel('ts','TS',d.map(x=>x.ts))}${sel('ros','ROS',d.map(x=>x.ros))}${sel('store','Store',d.map(x=>x.store))}${sel('sku','SKU / Item',d.map(x=>x.sku))}${sel('month','Month',d.map(x=>x.date?x.date.slice(0,7):''))}</div></div>`}
+ function noData(title,src){return `<div class="hero"><h2>${title}</h2><p>Detailed promoter, ROS, store, BU and SKU sell-out analysis.</p></div><div class="notice">${src?'The uploaded sell-out workbook does not have recognizable store/site and SKU/item columns.':'Upload the raw daily sell-out workbook first in Monthly Final Sales Out.'}</div>`}
+ window.__pmiRenderDetails=function renderDetails(id){const page=document.getElementById(id),m=mapped();if(!m){page.innerHTML=noData(id==='skusellout'?'SKU Sell-Out':'Promoter & ROS Details',false);return}if(!m.cols.store||!m.cols.sku){page.innerHTML=noData(id==='skusellout'?'SKU Sell-Out':'Promoter & ROS Details',true)+`<div class="notice">Detected fields — Store: ${escx(m.cols.store||'not found')}; SKU/item: ${escx(m.cols.sku||'not found')}. Available columns: ${m.src.headers.map(escx).join(', ')}</div>`;return}
+ const q=state.q.toLowerCase();let data=m.data.filter(x=>(!state.bu||x.bu===state.bu)&&(!state.ts||x.ts===state.ts)&&(!state.ros||x.ros===state.ros)&&(!state.store||x.store===state.store)&&(!state.sku||x.sku===state.sku)&&(!state.month||String(x.date).slice(0,7)===state.month)&&(!q||[x.promoter,x.employeeId,x.store,x.bu,x.ts,x.ros,x.sku,x.siteid,x.dealer].join(' ').toLowerCase().includes(q)));
+ const view=id==='skusellout'?'sku':state.view;let groups=new Map();data.forEach(x=>{const key=view==='sku'?[x.promoter,x.store,x.bu,x.sku,x.siteid,x.ts,x.ros,x.date].join('|'):view==='ros'?[x.ros,x.promoter,x.store,x.bu,x.ts,x.sku,x.date].join('|'):[x.promoter,x.employeeId,x.store,x.bu,x.ts,x.ros,x.sku,x.date].join('|');if(!groups.has(key))groups.set(key,{...x,qty:0,sales:0,lines:0});const g=groups.get(key);g.qty+=Number(String(x.qty||'').replace(/[, ]/g,''))||0;g.sales+=Number(String(x.sales||'').replace(/[₱,$, ]/g,''))||0;g.lines++});const out=[...groups.values()];
+ const heading=id==='skusellout'?'SKU Sell-Out by Promoter and Store':'Promoter & ROS Details';page.innerHTML=`<div class="hero"><h2>${heading}</h2><p>${id==='skusellout'?'Review item/SKU sell-out by promoter, store, BU and date.':'Review each promoter’s assigned store and BU coverage with actual sell-out details, and group the view by ROS.'} Data is based on uploaded sell-out lines and Manning roster matches.</p><span class="pill">${fmtx(data.length)} source lines matched</span></div>${id!=='skusellout'?`<div class="rs-tabs"><button class="rs-tab ${state.view==='promoter'?'active':''}" data-pd-view="promoter">Per Promoter</button><button class="rs-tab ${state.view==='ros'?'active':''}" data-pd-view="ros">Per ROS</button></div>`:''}${filterBar(m)}<div class="pmi-kpis"><span><b>${fmtx(out.length)}</b><br>Detail groups</span><span><b>${fmtx(out.reduce((a,x)=>a+x.sales,0))}</b><br>Sell-out amount</span><span><b>${fmtx(out.reduce((a,x)=>a+x.qty,0))}</b><br>Quantity</span><span><b>${fmtx(out.reduce((a,x)=>a+x.lines,0))}</b><br>Source lines</span></div><div class="card"><div class="head"><div><h3>${heading}</h3><div class="sub">One row per ${id==='skusellout'?'promoter / store / BU / SKU / date':state.view==='ros'?'ROS / promoter / store / BU / SKU / date':'promoter / store / BU / SKU / date'}.</div></div><button class="btn" id="pd-export">Export CSV</button></div><div class="pmi-table-wrap"><table><thead><tr><th>Date</th><th>Promoter</th><th>Employee ID</th><th>Store</th><th>Site ID / MCS</th><th>BU</th><th>SKU / Item</th><th>Quantity</th><th>Sell-Out</th><th>TS</th><th>ROS</th><th>Dealer</th></tr></thead><tbody>${out.map(x=>`<tr><td>${escx(x.date)}</td><td>${escx(x.promoter||'Unmatched')}</td><td>${escx(x.employeeId)}</td><td>${escx(x.store)}</td><td>${escx(x.siteid)}</td><td>${escx(x.bu)}</td><td>${escx(x.sku)}</td><td>${fmtx(x.qty)}</td><td>${fmtx(x.sales)}</td><td>${escx(x.ts)}</td><td>${escx(x.ros)}</td><td>${escx(x.dealer)}</td></tr>`).join('')||'<tr><td colspan="12">No sell-out rows match these filters.</td></tr>'}</tbody></table></div></div>`;
+ page.querySelectorAll('[data-pd]').forEach(el=>el.addEventListener(el.tagName==='INPUT'?'input':'change',()=>{state[el.dataset.pd]=el.value;renderDetails(id)}));page.querySelectorAll('[data-pd-view]').forEach(el=>el.onclick=()=>{state.view=el.dataset.pdView;renderDetails(id)});page.querySelector('#pd-export').onclick=()=>{const cols=['date','promoter','employeeId','store','siteid','bu','sku','qty','sales','ts','ros','dealer'];const csv=[cols,...out.map(x=>cols.map(k=>x[k]??''))].map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff',csv],{type:'text/csv;charset=utf-8'}));a.download=id==='skusellout'?'protempo-sku-sellout.csv':'protempo-promoter-ros-details.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+ }
+ const oldRender=render;render=function(p){if(p==='promrosdetail'||p==='skusellout'){activePage=p;document.querySelectorAll('.page').forEach(s=>s.classList.add('hidden'));document.getElementById(p).classList.remove('hidden');document.getElementById('title').textContent=p==='skusellout'?'SKU Sell-Out':'Promoter & ROS Details';document.getElementById('sub').textContent=p==='skusellout'?'Item-level sell-out by promoter, store and BU':'Promoter and ROS coverage with sales details';document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.p===p));window.__pmiRenderDetails(p);return}return oldRender(p)};
+})();
+
+</script>
+
+<script id="protempo-scorecard-integrated-views">
+(function(){
+ const labels=[['main','Sales & Target'],['tsview','Per TS'],['rosview','Per ROS'],['nosellout','No Reported Sell-Out'],['promrosdetail','Per Promoter / ROS'],['skusellout','SKU Sell-Out']];
+ const css='.pmi-scorecard-tabs{display:flex;gap:7px;flex-wrap:wrap;padding:10px;margin:0 0 14px;background:#f7f5fc;border:1px solid #e6e0f0;border-radius:12px}.pmi-scorecard-tab{border:0;background:transparent;color:#706786;font:inherit;font-weight:700;padding:9px 12px;border-radius:8px;cursor:pointer}.pmi-scorecard-tab.active{background:#7041c5;color:#fff}.pmi-scorecard-pane{min-width:0}';
+ let selected='main',rendering=false;
+ function ensureSections(){
+  ['tsview','rosview','nosellout','promrosdetail','skusellout'].forEach(id=>{
+   const b=document.querySelector(`.nav button[data-p="${id}"]`);if(b)b.remove();
+   if(!document.getElementById(id)){const sec=document.createElement('section');sec.id=id;sec.className='page hidden';document.querySelector('main.main')?.appendChild(sec)}
+  });
+  if(!document.getElementById('pmi-scorecard-style')){const st=document.createElement('style');st.id='pmi-scorecard-style';st.textContent=css;document.head.appendChild(st)}
+ }
+ function paint(){
+  const page=document.getElementById('scorecard');if(!page)return;
+  ensureSections();
+  let tabs=page.querySelector('.pmi-scorecard-tabs');
+  if(!tabs){
+   tabs=document.createElement('div');tabs.className='pmi-scorecard-tabs';
+   tabs.innerHTML=labels.map(([id,label])=>`<button type="button" class="pmi-scorecard-tab" data-score-view="${id}">${label}</button>`).join('');
+   const pane=document.createElement('div');pane.className='pmi-scorecard-pane';pane.id='pmi-scorecard-extra';pane.style.display='none';
+   page.insertBefore(pane,page.firstChild);page.insertBefore(tabs,page.firstChild);
+   tabs.querySelectorAll('button').forEach(btn=>btn.addEventListener('click',()=>{selected=btn.dataset.scoreView;showSelected()}));
+  }
+  tabs.querySelectorAll('button').forEach(btn=>btn.classList.toggle('active',btn.dataset.scoreView===selected));
+  showSelected();
+ }
+ function showSelected(){
+  const page=document.getElementById('scorecard');if(!page)return;
+  const tabs=page.querySelector('.pmi-scorecard-tabs'),pane=page.querySelector('#pmi-scorecard-extra');if(!tabs||!pane)return;
+  tabs.querySelectorAll('button').forEach(btn=>btn.classList.toggle('active',btn.dataset.scoreView===selected));
+  // Original scorecard content is stored after the tab bar in a stable host.
+  let main=page.querySelector('#pmi-scorecard-main');
+  if(!main){main=document.createElement('div');main.id='pmi-scorecard-main';while(pane.nextSibling)main.appendChild(pane.nextSibling);page.appendChild(main)}
+  if(selected==='main'){pane.style.display='none';main.style.display='';return}
+  pane.style.display='';main.style.display='none';pane.innerHTML='';
+  const sec=document.getElementById(selected);if(!sec)return;sec.innerHTML='';
+  if(selected==='tsview')window.__pmiRenderLeader?.(selected,'ts','TS Sales Achievement Scorecard');
+  else if(selected==='rosview')window.__pmiRenderLeader?.(selected,'ros','ROS Sales Achievement Scorecard');
+  else if(selected==='nosellout')window.__pmiRenderNoSellout?.();
+  else window.__pmiRenderDetails?.(selected);
+  while(sec.firstChild)pane.appendChild(sec.firstChild);
+ }
+ const original=window.scorecardPage;
+ if(typeof original==='function'&&!original.__pmiTabsWrapped){
+  const wrapped=function(){const result=original.apply(this,arguments);if(!rendering){rendering=true;try{
+    const page=document.getElementById('scorecard');if(page){
+     // Move the freshly rendered original scorecard content into a stable main host,
+     // then recreate the in-scorecard view tabs on every rerender.
+     const prior=page.querySelector('#pmi-scorecard-main');
+     if(prior){while(prior.firstChild)page.insertBefore(prior.firstChild,prior);prior.remove()}
+     page.querySelector('.pmi-scorecard-tabs')?.remove();page.querySelector('#pmi-scorecard-extra')?.remove();
+     selected=selected||'main';paint();
+    }
+   }finally{rendering=false}}return result};
+  wrapped.__pmiTabsWrapped=true;window.scorecardPage=wrapped;
+ }
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{if(document.getElementById('scorecard'))paint()},{once:true});
+})();
+</script>
+
 </body></html>
