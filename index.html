@@ -1891,9 +1891,35 @@ const prior=window.render;if(typeof prior==='function')window.render=function(p)
     if(error)throw error;historyCache=data||[];return historyCache;
   }
   async function loadChanges(snapshotId){
-    const {data,error}=await client().from(CHANGES).select('week_label,row_key,change_type,field_name,old_value,new_value,created_at').eq('snapshot_id',snapshotId).order('change_type').order('row_key').order('field_name').limit(5000);
+    const {data,error}=await client().from(CHANGES).select('week_label,row_key,change_type,field_name,old_value,new_value,row_data,created_at').eq('snapshot_id',snapshotId).order('change_type').order('row_key').order('field_name').limit(5000);
     if(error)throw error;return data||[];
   }
+  const fieldLabels={
+    bu:'Business Unit',category:'Promoter Category',site:'Store / Site',siteName:'Store / Site',
+    city:'City',province:'Province',region:'Region',islandGroup:'Island Group',
+    ts:'Trade Supervisor (TS)',tempTS:'Temporary Trade Supervisor',md:'Merchandising Manager (MD)',
+    ros:'Regional / Area ROS',areaManager:'Area Manager',promoter:'Promoter Name',
+    promoterName:'Promoter Name',employeeId:'Employee ID',mcsCode:'MCS Code',week:'Manning Week',
+    status:'Deployment Status',required:'Required Headcount',deployed:'Deployed Headcount',
+    dateHired:'Date Hired',deploymentDate:'Store Deployment Date',tenure:'Tenure',
+    salesGroup:'Sales Group',dealer:'Dealer',siteGroup:'Site Group',type:'Field Force Type',
+    fieldForceType:'Field Force Type',agency:'Agency',mallYN:'Mall Location?',mallName:'Mall Name'
+  };
+  const humanField=k=>fieldLabels[k]||String(k||'').replace(/([a-z0-9])([A-Z])/g,'$1 $2').replace(/[_-]+/g,' ').replace(/^./,x=>x.toUpperCase());
+  const displayValue=v=>{
+    if(v===null||v===undefined||v==='')return 'Not provided';
+    if(typeof v==='object')return Object.entries(v).map(([k,x])=>`${humanField(k)}: ${displayValue(x)}`).join(' • ');
+    const s=String(v);
+    try{const parsed=JSON.parse(s);if(parsed&&typeof parsed==='object')return displayValue(parsed)}catch(e){}
+    return s;
+  };
+  const recordSummary=r=>{
+    if(!r||typeof r!=='object')return 'No record';
+    const keys=['bu','category','promoter','employeeId','mcsCode','site','city','province','week','ts','md','ros','status'];
+    const parts=keys.filter(k=>r[k]!==null&&r[k]!==undefined&&String(r[k]).trim()!=='').map(k=>`${humanField(k)}: ${displayValue(r[k])}`);
+    return parts.length?parts.join(' • '):displayValue(r);
+  };
+  const changeTypeLabel=t=>({ADDED:'Added record',REMOVED:'Removed record',UPDATED:'Updated field'}[String(t||'').toUpperCase()]||humanField(t));
   async function renderHistory(){
     const root=$('manning-history');if(!root)return;
     root.innerHTML='<div class="card"><h2>Manning Upload History</h2><p>Loading saved uploads and detected changes…</p></div>';
@@ -1903,8 +1929,8 @@ const prior=window.render;if(typeof prior==='function')window.render=function(p)
       <div class="kpis"><div class="kpi"><span>Saved uploads</span><b>${data.length}</b></div><div class="kpi"><span>Latest week</span><b>${esc(data[0]?.week_label||'—')}</b></div><div class="kpi"><span>Latest upload rows</span><b>${Number(data[0]?.row_count||0).toLocaleString()}</b></div></div>
       <div class="table" style="margin-top:12px"><table><thead><tr><th>Uploaded</th><th>File</th><th>Week(s)</th><th>Rows</th><th>Added</th><th>Removed</th><th>Field changes</th><th>Details</th></tr></thead><tbody id="mh-body">${data.map(s=>{const c=s.change_summary||{};return `<tr><td>${esc(fmtDate(s.uploaded_at))}</td><td>${esc(s.file_name)}</td><td>${esc(s.week_label)}</td><td>${Number(s.row_count||0).toLocaleString()}</td><td>${Number(c.added||0).toLocaleString()}</td><td>${Number(c.removed||0).toLocaleString()}</td><td>${Number(c.updated||0).toLocaleString()}</td><td><button class="btn" data-mh-details="${esc(s.id)}">View changes</button></td></tr>`}).join('')||'<tr><td colspan="8">No uploads saved yet. The next Manning upload will create the first history snapshot.</td></tr>'}</tbody></table></div><div id="mh-detail" style="margin-top:14px"></div></div>`;
       $('mh-refresh').onclick=renderHistory;
-      $('mh-body').addEventListener('click',async e=>{const b=e.target.closest('[data-mh-details]');if(!b)return;const id=b.dataset.mhDetails,box=$('mh-detail');box.innerHTML='<div class="small">Loading changes…</div>';try{const changes=await loadChanges(id);box.innerHTML=`<div class="head"><div><h3>Changes in selected upload</h3><div class="small">Row additions/removals are shown as whole records; updated rows are shown one changed field per row.</div></div><button class="btn" id="mh-export-changes">Export changes CSV</button></div><div class="table"><table><thead><tr><th>Type</th><th>Week</th><th>Store</th><th>TS</th><th>BU</th><th>Field</th><th>Previous value</th><th>New value</th></tr></thead><tbody>${changes.map(c=>{const r=c.row_data&&typeof c.row_data==='object'?c.row_data:{};const val=v=>v===null||v===undefined?'—':typeof v==='object'?JSON.stringify(v):String(v);return `<tr><td>${esc(c.change_type)}</td><td>${esc(c.week_label||r.week||'')}</td><td>${esc(r.site||'')}</td><td>${esc(r.ts||'')}</td><td>${esc(r.bu||r.category||'')}</td><td>${esc(c.field_name==='__row__'?'Whole record':c.field_name)}</td><td>${esc(val(c.old_value))}</td><td>${esc(val(c.new_value))}</td></tr>`}).join('')||'<tr><td colspan="8">No row or field differences from the previous upload.</td></tr>'}</tbody></table></div>`;
-      $('mh-export-changes').onclick=()=>{const fields=['change_type','week_label','row_key','field_name','old_value','new_value'];const csv=[fields,...changes.map(c=>fields.map(f=>typeof c[f]==='object'?JSON.stringify(c[f]):c[f]??''))].map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\\r\\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\\ufeff',csv],{type:'text/csv;charset=utf-8'}));a.download='manning-changes-'+id+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+      $('mh-body').addEventListener('click',async e=>{const b=e.target.closest('[data-mh-details]');if(!b)return;const id=b.dataset.mhDetails,box=$('mh-detail');box.innerHTML='<div class="small">Loading changes…</div>';try{const changes=await loadChanges(id);box.innerHTML=`<div class="head"><div><h3>Changes in selected upload</h3><div class="small">Each row explains what changed between this upload and the previous saved upload. Added and removed records show a readable summary; updated records show the exact field and its before/after values.</div></div><button class="btn" id="mh-export-changes">Export changes CSV</button></div><div class="notice">Previous value means the value in the prior upload. New value means the value in the selected upload. “Not provided” means the source data is blank.</div><div class="table"><table><thead><tr><th>Change type</th><th>Week</th><th>Business unit</th><th>Promoter / Employee</th><th>Store / Site</th><th>City</th><th>Field changed</th><th>Previous value</th><th>New value</th></tr></thead><tbody>${changes.map(c=>{const r=c.row_data&&typeof c.row_data==='object'?c.row_data:{};const type=String(c.change_type||'').toUpperCase();const oldRecord=type==='REMOVED'?recordSummary(c.old_value):type==='ADDED'?'No previous record — newly added':c.old_value;const newRecord=type==='ADDED'?recordSummary(c.new_value):type==='REMOVED'?'Record removed from the new upload':c.new_value;const field=c.field_name==='__row__'?(type==='ADDED'?'New record added':type==='REMOVED'?'Record removed':'Whole record'):humanField(c.field_name);return `<tr><td><span class="badge ${type==='ADDED'?'good':type==='REMOVED'?'bad':''}">${esc(changeTypeLabel(type))}</span></td><td>${esc(c.week_label||r.week||'—')}</td><td>${esc(r.bu||r.category||'—')}</td><td>${esc(r.promoter||r.promoterName||r.employeeId||'—')}</td><td>${esc(r.site||r.siteName||'—')}</td><td>${esc(r.city||'—')}</td><td>${esc(field)}</td><td style="white-space:normal;min-width:180px;max-width:320px;overflow-wrap:anywhere">${esc(displayValue(oldRecord))}</td><td style="white-space:normal;min-width:180px;max-width:320px;overflow-wrap:anywhere">${esc(displayValue(newRecord))}</td></tr>`}).join('')||'<tr><td colspan="9">No row or field differences from the previous upload.</td></tr>'}</tbody></table></div>`;
+      $('mh-export-changes').onclick=()=>{const fields=['change_type','week_label','row_key','field_name','old_value','new_value','row_data'];const csv=[fields,...changes.map(c=>fields.map(f=>typeof c[f]==='object'?JSON.stringify(c[f]):c[f]??''))].map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\\r\\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\\ufeff',csv],{type:'text/csv;charset=utf-8'}));a.download='manning-changes-'+id+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
       }catch(err){box.innerHTML=`<div class="small">Could not load changes: ${esc(err.message||err)}</div>`}});
     }catch(err){root.innerHTML=`<div class="card"><h2>Manning Upload History</h2><p class="small">Could not load history: ${esc(err.message||err)}</p><p class="small">Confirm the SQL tables are created and that you are signed in with the designated admin account.</p><button class="btn" id="mh-retry">Retry</button></div>`;$('mh-retry').onclick=renderHistory}
   }
